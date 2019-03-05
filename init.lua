@@ -13,7 +13,7 @@ end
 
 if( enable_example02 ) then
 	dofile("plugins/CommonParser/example02.lua_")
-	tcp_table:add (34502, example01_proto)
+	tcp_table:add (34502, example02_proto)
 end
 
 
