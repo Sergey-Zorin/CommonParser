@@ -1,0 +1,84 @@
+-- 
+Ex01_ReqName = {
+	[0x0001] = "MOVE_FORWARD",
+	[0x0002] = "TURN",
+	[0x0003] = "VIEW",
+	[0x0004] = "DIG",
+	[0x0005] = "RADIO",
+}
+
+Ex01_CodeName = {
+	[0x0000] = "OK",
+	[0x0001] = "CANT_MOVE",
+	[0x0002] = "LOW_BAT",
+	[0x0003] = "OTHER",
+}
+
+
+-- ============================================================
+PacketBlock.new(		"EX01_REQ"	)
+	:add( PacketField.new(	"id_req",	ftypes.UINT16, nil, nil, base.HEX, Ex01_ReqName  ) )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX01_ANS"	)
+	:add( PacketField.new(	"ret_code",	ftypes.UINT16, nil, nil, base.HEX, Ex01_CodeName ) )
+	:register_dissector()
+
+
+-- ============================================================
+do
+	local proto_name		= "ex01"
+	local proto_long_name	= "Example-01 Protocol"
+	local proto_col_name	= "Example01"
+
+	local my_proto = Proto( proto_name, proto_long_name )
+
+	example01_proto	= my_proto
+
+	function my_proto.dissector( buffer, pinfo, tree )
+
+		Data.set_position(pinfo)
+		pinfo.cols.protocol = proto_col_name
+		local subtree 	= tree:add( my_proto, buffer() )
+		local offset	= 0
+
+		repeat
+			local dir = Data.determine_direction(pinfo)
+
+			local block	= PacketBlock.get("UNKNOWN")
+			if( dir == "req" ) then
+				block	= PacketBlock.get("EX01_REQ")
+			elseif( dir == "ans" ) then
+				block	= PacketBlock.get("EX01_ANS")
+			end
+
+			len		= block:dissect(buffer(offset):tvb(), pinfo, subtree)
+			offset		= offset + len
+
+			
+			
+			if( dir == "req" ) then
+				local id_req = Data.get("val.EX01_REQ.id_req", true) or 0;
+				local req_name = Ex01_ReqName[id_req] or "unknown request"
+				pinfo.cols.info:append(" " .. req_name)
+			elseif( dir == "ans" ) then
+				local code = Data.get("val.EX01_ANS.ret_code", true) or 0xFFFF;
+				local code_name = Ex01_CodeName[code] or "unknown return code"
+				pinfo.cols.info:append(" " .. code_name)
+			end
+				 
+			
+		until true
+
+        -- ---------------------------------------------
+        -- Unknown rest of packet
+        --
+		if (offset < buffer():len()) then
+			block	= PacketBlock.get("UNKNOWN_DATA")
+			len	= block:dissect(buffer(offset):tvb(), pinfo, subtree)
+			offset = offset + len
+		end
+	
+	end
+end

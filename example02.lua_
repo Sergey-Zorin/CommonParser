@@ -1,0 +1,175 @@
+-- 
+Ex02_ReqName = {
+	[0x0001] = "MOVE_FORWARD",
+	[0x0002] = "TURN",
+	[0x0003] = "VIEW",
+	[0x0004] = "DIG",
+	[0x0005] = "RADIO",
+}
+
+Ex02_CodeName = {
+	[0x0000] = "OK",
+	[0x0001] = "CANT_MOVE",
+	[0x0002] = "LOW_BAT",
+	[0x0003] = "OTHER",
+}
+
+
+-- ============================================================
+PacketBlock.new(		"EX02_HDR"	)
+	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
+	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX02_REQ"	)
+	:add( PacketField.new(	"id_req",	ftypes.UINT16, nil, nil, base.HEX, Ex01_ReqName  ) )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX02_ANS"	)
+	:add( PacketField.new(	"ret_code",	ftypes.UINT16, nil, nil, base.HEX, Ex01_CodeName ) )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX02_STATUS"	)
+	:add( PacketField.new(	"flags",	ftypes.UINT8, nil, nil, base.HEX ) )
+		:add_sub( "flags", 0, PacketField.new( 	"flags.wind",	ftypes.UINT8, nil,nil, nil,
+					{"N", "NE", "E", "SE", "S", "SW", "W", "NW"}, 0x07 ) )
+		:add_sub( "flags", 0, PacketField.new( 	"flags.batary_ok",	ftypes.UINT8, nil,nil,nil,nil, 0x08 ) )
+		:add_sub( "flags", 0, PacketField.new( 	"flags.engine_ok",	ftypes.UINT8, nil,nil,nil,nil, 0x10 ) )
+	:add( PacketField.new(	"loading",	ftypes.UINT8 ) )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX02_MOVE_FORWARD"	)
+	:add( PacketField.new(	"distance",	ftypes.INT16 ) )
+	:add( PacketField.new(	"le_field",	ftypes.INT16, nil, xend.LE ) )
+	:register_dissector()
+
+PacketBlock.new(		"EX02_MOVE_FORWARD_ANS"	)
+	:add( "EX02_STATUS" )
+	:register_dissector()
+
+
+-- ============================================================
+PacketBlock.new(		"EX02_TURN"	)
+	:add( PacketField.new(	"angle",	ftypes.INT16 ) )
+	:register_dissector()
+
+PacketBlock.new(		"EX02_TURN_ANS"	)
+	:add( "EX02_STATUS" )
+	:register_dissector()
+
+
+-- ============================================================
+PacketBlock.new(		"EX02_VIEW"	)
+	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
+	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:register_dissector()
+
+PacketBlock.new(		"EX02_VIEW_ANS"	)
+	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
+	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:register_dissector()
+
+
+-- ============================================================
+PacketBlock.new(		"EX02_DIG"	)
+	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
+	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:register_dissector()
+
+PacketBlock.new(		"EX02_DIG_ANS"	)
+	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
+	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:register_dissector()
+
+
+-- ============================================================
+PacketBlock.new(		"EX02_RADIO"	)
+	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
+	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:register_dissector()
+
+PacketBlock.new(		"EX02_RADIO_ANS"	)
+	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
+	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:register_dissector()
+
+
+-- ============================================================
+do
+	local proto_name		= "ex02"
+	local proto_long_name	= "Example-02 Protocol"
+	local proto_col_name	= "Example02"
+
+	local my_proto = Proto( proto_name, proto_long_name )
+
+	example01_proto	= my_proto
+
+	function my_proto.dissector( buffer, pinfo, tree )
+
+		Data.set_position(pinfo)
+		pinfo.cols.protocol = proto_col_name
+		local subtree 	= tree:add( my_proto, buffer() )
+		local offset	= 0
+
+		repeat
+			local dir = Data.determine_direction(pinfo)
+
+			-- layer 1 
+			local block	= PacketBlock.get("EX02_HDR")
+			len		= block:dissect(buffer(offset):tvb(), pinfo, subtree)
+			offset	= offset + len
+			
+			
+			-- layer 2 
+			local block_name = "UNKNOWN"
+			if( dir == "req" ) then
+				block_name = "EX01_REQ"
+			elseif( dir == "ans" ) then
+				block_name = "EX01_ANS"
+			else
+				
+			end
+
+			block	= PacketBlock.get(block_name)
+			len		= block:dissect(buffer(offset):tvb(), pinfo, subtree)
+			offset	= offset + len
+
+
+			-- layer 3
+			block_name = "UNKNOWN"
+			if( dir == "req" ) then
+				local id_req = Data.get("val.EX02_REQ.id_req", true) or 0;
+				local req_name = Ex01_ReqName[id_req] or "unknown request"
+				pinfo.cols.info:append(" " .. req_name)
+				Data.set("id_req", id_req) -- save in tcp-stream data
+				block_name = "EX01_" .. req_name
+			elseif( dir == "ans" ) then
+				local code = Data.get("val.EX02_ANS.ret_code", true) or 0xFFFF;
+				local code_name = Ex01_CodeName[code] or "unknown return code"
+				local id_req = Data.get("id_req") or 0 -- load from tcp-stream data
+				local req_name = Ex01_ReqName[id_req] or "unknown request"
+				pinfo.cols.info:append(" " .. string.lower(req_name).. ": " .. code_name)
+				block_name = "EX01_" .. req_name .. "_ANS"
+			end
+
+			block	= PacketBlock.get(block_name)
+			len		= block:dissect(buffer(offset):tvb(), pinfo, subtree)
+			offset	= offset + len
+			
+		until true
+
+        -- ---------------------------------------------
+        -- Unknown rest of packet
+        --
+		if (offset < buffer():len()) then
+			block	= PacketBlock.get("UNKNOWN_DATA")
+			len	= block:dissect(buffer(offset):tvb(), pinfo, subtree)
+			offset = offset + len
+		end
+	
+	end
+end

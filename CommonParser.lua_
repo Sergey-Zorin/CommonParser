@@ -1,0 +1,800 @@
+-- deb_print = print		-- print debug
+deb_print = function() end	-- don't print debug
+
+
+-- ======================================================
+Data = {
+	global	= { last_block_len = 0 },
+	packet	= {},
+	stream	= {},
+	cur_packet	= 0,
+	cur_stream	= nil,
+	tcp_stream = Field.new("tcp.stream")
+}
+
+function Data.set_position(pinfo)
+	Data.cur_packet = pinfo.number
+	-- cur_stream определяется долько для TCP
+	local stream = Data.tcp_stream();
+	if ( stream ~= nil )  then
+		Data.cur_stream = stream.value
+	end 
+	deb_print("Data.set_position(): stream/packet=" .. (Data.cur_stream or "nil")  .. "/" .. Data.cur_packet .. ", visited: ", pinfo.visited)
+end
+
+function Data.set(key, val, packet_only)
+	deb_print("Data.set('" .. key .. "',", packet_only, ") s/p=" .. (Data.cur_stream or "nil") .. "/" .. Data.cur_packet .. " <- val=" , val)
+	assert( key ~= nil)
+	assert( val ~= nil)
+	if ( Data.packet[Data.cur_packet] == nil ) then
+		Data.packet[Data.cur_packet] = {}
+	end
+	Data.packet[Data.cur_packet][key] = val
+
+	if ( Data.cur_stream ~= nil ) then
+		if ( not packet_only ) then
+			if ( Data.stream[Data.cur_stream] == nil ) then
+				Data.stream[Data.cur_stream] = {}
+			end
+			Data.stream[Data.cur_stream][key] = val
+		end
+	end
+
+	return val
+end
+
+function Data.get(key, packet_only)
+	assert( key ~= nil)
+	if ( Data.packet[Data.cur_packet] == nil ) then
+		-- deb_print("Data.get(): Data.cur_packet : ", Data.cur_packet) 
+		Data.packet[Data.cur_packet] = {}
+	end
+	deb_print("Data.get(): Data.cur_packet : ", Data.cur_packet) 
+	deb_print("Data.get(): Data.packet[Data.cur_packet] : ", Data.packet[Data.cur_packet]) 
+	local val = Data.packet[Data.cur_packet][key]
+
+	if ( Data.cur_stream ~= nil ) then
+		if ( (not packet_only) and val == nil) then
+			if ( Data.stream[Data.cur_stream] == nil ) then
+				Data.stream[Data.cur_stream] = {}
+			end
+			val = Data.stream[Data.cur_stream][key]
+			if (val ~= nil) then
+				Data.packet[Data.cur_packet][key] = val
+			end
+		end
+	end
+
+	deb_print("Data.get('" .. key .. "',", packet_only, ") s/p=" .. (Data.cur_stream or "nil") .. "/" .. Data.cur_packet .. " -> val=" , val)
+	return val
+end
+
+function Data.determine_direction(pinfo)
+	local dir = "unk"
+	local text = pinfo.src_port .. " > " .. pinfo.dst_port .. " (unknown direction)"
+	if ( pinfo.match == pinfo.dst_port ) then
+		dir = "req"
+		text = pinfo.src_port .. " > " .. pinfo.dst_port .. " {REQEST}"
+	elseif ( pinfo.match == pinfo.src_port ) then
+		dir = "ans"
+		text = pinfo.dst_port .. " < " .. pinfo.src_port .. " {answer}"
+	end
+	local prev_dir = Data.get("dir") or dir
+	Data.set("dir", dir)
+	pinfo.cols.info:set(text)
+	return dir
+end
+
+-- послать данные ближайшему последователю в стриме (только для TCP)
+function Data.set_legacy(key, val)
+	assert( key ~= nil)
+	assert( val ~= nil)
+
+	deb_print("Data.set_legacy('" .. key .. "') s/p=" .. (Data.cur_stream or "nil") .. "/" .. Data.cur_packet .. " <- val=" , val)
+	if ( Data.stream[Data.cur_stream] == nil ) then
+		Data.stream[Data.cur_stream] = {}
+	end
+	Data.stream[Data.cur_stream][key] = val
+	return val
+end
+
+-- принять данные от ближайшего проедшественика и скрыть их для других последователей (только для TCP)
+function Data.get_legacy(key, default)
+	assert( key ~= nil)
+
+	if ( Data.packet[Data.cur_packet] == nil ) then
+		Data.packet[Data.cur_packet] = {}
+	end
+	if ( Data.stream[Data.cur_stream] == nil ) then
+		Data.stream[Data.cur_stream] = {}
+	end
+
+	local val = Data.packet[Data.cur_packet][key]
+
+	if (val == nil) then
+		val = Data.stream[Data.cur_stream][key] or default
+		Data.packet[Data.cur_packet][key] = val
+	else
+		Data.stream[Data.cur_stream][key] = nil
+	end
+
+	deb_print("Data.get_legacy('" .. key .. "') s/p=" .. Data.cur_stream .. "/" .. Data.cur_packet .. " -> val=" , val)
+	return val
+end
+
+-- ======================================================
+-- расширение ftypes
+xftypes = {	
+		TIME32		= 1000,
+		TIME64		= 1001,
+		VARCHAR8	= 1002,
+		VARCHAR16	= 1003,
+}
+
+-- ======================================================
+-- Big- or Litle- Endian
+xend = {	
+		BE		= 1,
+		LE		= 2,
+}
+
+
+-- ======================================================
+
+PacketField = {
+	entity_type	= "field",
+	endian		= { be = xend.BE, le = xend.LE },
+
+	pf_new	= {
+		[ftypes.STRING]	= ProtoField.string,
+		[ftypes.BYTES]	= ProtoField.bytes,
+		[ftypes.INT8]	= ProtoField.int8,
+		[ftypes.INT16]	= ProtoField.int16,
+		[ftypes.INT24]	= ProtoField.int24,
+		[ftypes.INT32]	= ProtoField.int32,
+		[ftypes.INT64]	= ProtoField.int64,
+		[ftypes.UINT8]	= ProtoField.uint8,
+		[ftypes.UINT16]	= ProtoField.uint16,
+		[ftypes.UINT24]	= ProtoField.uint24,
+		[ftypes.UINT32]	= ProtoField.uint32,
+		[ftypes.UINT64]	= ProtoField.uint64,
+		[ftypes.UINT32]	= ProtoField.uint32,
+		[ftypes.UINT64]	= ProtoField.uint64,
+		[ftypes.IPv4]	= ProtoField.ipv4,
+		[ftypes.ETHER]	= ProtoField.ether,
+		[xftypes.TIME32]	= ProtoField.uint32,
+		[xftypes.TIME64]	= ProtoField.uint64,
+		[xftypes.VARCHAR8]	= ProtoField.bytes,
+		[xftypes.VARCHAR16]	= ProtoField.bytes,
+	}
+	
+}
+PacketField.__index = PacketField
+
+-- ----------------------------------------
+-- name		Name of field
+-- type		ftypes.*
+--  
+function PacketField.new(name, type, len_src, endian, num_base, valuestr, mask )
+	deb_print ('PacketField.new(): "', name, '"')
+	local field = {}
+	setmetatable( field, PacketField )
+
+	assert( type, "Unknown field type: (nil)")
+	assert( PacketField.pf_new[type], "Unknown field type: ".. type)
+ 
+	field.name	= name
+	field.count	= 1
+	field.type	= type
+	field.endian	= endian	or xend.BE	-- PacketField.endian.be
+	field.len_src	= len_src
+	field.num_base	= num_base	or base.DEC -- base.DEC
+	field.valuestr	= valuestr
+	field.mask	= mask
+	field.sub	= {}
+
+	return field
+end
+
+function PacketField:get_fix_len()
+	deb_print ('PacketField:get_fix_len(): "', self.name, '"')
+	local len = -1
+
+	if ( (	self.type == ftypes.STRING or
+		self.type == ftypes.BYTES  ) and  type(self.len_src) == "number" 
+						) then	len = self.len_src
+	elseif(	self.type == ftypes.INT8	) then	len = 1
+	elseif(	self.type == ftypes.INT16	) then	len = 2
+	elseif(	self.type == ftypes.INT24	) then	len = 3
+	elseif(	self.type == ftypes.INT32	) then	len = 4
+	elseif(	self.type == ftypes.INT64	) then	len = 8
+	elseif(	self.type == ftypes.UINT8	) then	len = 1
+	elseif(	self.type == ftypes.UINT16	) then	len = 2
+	elseif(	self.type == ftypes.UINT24	) then	len = 3
+	elseif(	self.type == ftypes.UINT32	) then	len = 4
+	elseif(	self.type == ftypes.UINT64	) then	len = 8
+	elseif(	self.type == ftypes.IPv4	) then	len = 4
+	elseif(	self.type == ftypes.ETHER	) then	len = 6
+	elseif(	self.type == xftypes.TIME32	) then	len = 4
+	elseif(	self.type == xftypes.TIME64	) then	len = 8
+	end
+
+	return len
+end
+
+function PacketField:create_protofield( name_prefix )
+	deb_print ('PacketField:create_protofield(): "', self.name, '", prefix: "', name_prefix, '"')
+
+	assert(  self.pf_new[self.type], "No PF function for type=" .. self.type .. "  name=" .. self.name )
+
+	if( 	    self.type == ftypes.STRING
+		or  self.type == ftypes.BYTES 
+		or  self.type == xftypes.TIME32 
+		or  self.type == xftypes.TIME64 
+		or  self.type == xftypes.VARCHAR8 
+		or  self.type == xftypes.VARCHAR16 
+	) then
+		return self.pf_new[self.type]( name_prefix .. self.name, self.name )
+	end
+
+	return self.pf_new[self.type]( 
+
+		name_prefix .. self.name,
+		self.name,
+		self.num_base,
+		self.valuestr,
+		self.mask 
+		)
+end
+
+function PacketField:get_num_value( range )
+	deb_print ('PacketField:get_num_value(): "', self.name, '"')
+
+	if( self.type == ftypes.INT8   or
+	    self.type == ftypes.INT16  or
+	    self.type == ftypes.INT24  or
+	    self.type == ftypes.INT32	) then
+		if (self.endian == xend.BE) then 	-- PacketField.endian.be ) then
+			return range:int()
+		else
+			return range:le_int()
+		end
+	end
+
+	if( self.type == ftypes.UINT8   or
+	    self.type == ftypes.UINT16  or
+	    self.type == ftypes.UINT24  or
+	    self.type == ftypes.UINT32   ) then
+		if (self.endian == xend.BE) then	-- PacketField.endian.be ) then
+			return range:uint()
+		else
+			return range:le_uint()
+		end
+	end
+
+	if( self.type == ftypes.UINT64  ) then
+		if (self.endian == xend.BE) then	-- PacketField.endian.be ) then
+			return range:uint64()
+		else
+			return range:le_uint64()
+		end
+	end
+
+
+	return nil
+end
+
+
+
+-- ======================================================
+
+PacketContent = {
+}
+PacketContent.__index = PacketContent
+
+function PacketContent.new()
+        deb_print ('PacketContent.new()')
+	local content = {}
+	setmetatable( content, PacketContent )
+
+	content.nodes = {}
+	content.name2field = {}
+	content.name2value = {}
+
+	return content
+end
+
+function PacketContent:add( entity, range )
+	deb_print ('PacketContent:add(): <', entity.name , '>  <', range, '>')
+
+	assert ( entity.entity_type, 	"Bad entity" )
+	assert ( entity.name,		"Bad entity name" )
+
+	local name	= entity.name
+	local node 	= {}
+	node.entity	= entity
+	node.range	= range
+
+	table.insert( self.nodes, node )
+
+	if (entity.entity_type == "field") then
+		assert ( self.name2field[name] == nil, "Field already exists '" .. name .. "'"  )
+		self.name2field[name] = node
+		self.name2value[name] = entity:get_num_value( range )
+
+		for _,sub in ipairs(entity.sub) do
+			local sublen		= sub.entity:get_fix_len()
+			if (sublen > 0) then
+				local subname 	= sub.entity.name
+				local subrange 	= range:tvb():range(sub.off, sublen)
+				self.name2value[subname] = sub.entity:get_num_value( subrange )
+			end
+		end
+
+	end
+
+	return self
+end
+
+function PacketContent:get_field_value(name) 
+	return self.name2value[name]
+end
+
+function PacketContent:get_field_len( f, buffer, offset ) 
+	assert( f.entity_type == 'field' )
+	local len = -1
+
+	if ( f.type == xftypes.VARCHAR8 or f.type == xftypes.VARCHAR16 ) then
+
+		local vc_len_field  = f.sub[1].entity
+
+		assert( vc_len_field.entity_type == 'field', "bad vc_len_field.entity_type" )
+
+		local vc_len_name   = vc_len_field.name
+		local vc_len_range  = buffer( offset, vc_len_field:get_fix_len() ) 
+		local vc_len_value  = vc_len_field:get_num_value( vc_len_range )
+		self.name2value[vc_len_field.name] = vc_len_value
+		len = vc_len_value + vc_len_field:get_fix_len()
+
+	elseif ( type(f.len_src) == "string" ) then
+
+		len = self:get_field_value(f.len_src) or -1
+
+	else
+
+		len = f:get_fix_len()
+
+	end
+	return len
+end
+
+
+function PacketContent:check_bit( args )
+	local my_name		= args[1]
+	local field_name	= args[2]
+	local bit_number	= args[3] 
+	local val	= self:get_field_value(field_name) or 0
+	local ost	= val % 2;
+	
+	if (val > 0) then
+		for i = 1, bit_number  do
+			val = (val-ost) / 2;
+			ost = val % 2;
+		end
+	end
+
+	deb_print ('PacketContent:check_bit( "'.. field_name .. '",  ' .. bit_number .. '):  field_val = ', val, '  returns ' .. ost)
+	return ost
+end
+
+
+function PacketContent:check_eq( args )
+	local my_name		= args[1]
+	local field_name	= args[2]
+	local check_value	= args[3] 
+	local val	= self:get_field_value(field_name)
+	local ret 	= 0 
+	if (val ~= nil) then
+		if ( val == check_value) then
+			ret = 1
+		end
+	end
+	
+	deb_print ('PacketContent:check_eq( "'.. field_name .. '",  ' .. check_value .. '):  field_val = ', val, '  returns ' .. ret)
+	return ret
+end
+
+function PacketContent:check_eq( args )
+	local my_name		= args[1]
+	local field_name	= args[2]
+	local check_value	= args[3] 
+	local val	= self:get_field_value(field_name)
+	local ret 	= 0 
+	if (val ~= nil) then
+		if ( val == check_value) then
+			ret = 1
+		end
+	end
+	
+	deb_print ('PacketContent:check_eq( "'.. field_name .. '",  ' .. check_value .. '):  field_val = ', val, '  returns ' .. ret)
+	return ret
+end
+
+
+function PacketContent:OR( args )
+	local my_name		= args[1]
+	local index = 2
+	local cur_arg = args[index]
+	local ret = 0
+	
+	while ( ret == 0  and cur_arg ~= nil ) do
+		local func_name = cur_arg[1]
+		local func = self[func_name]
+		if ( type(func) == "function" ) then
+			ret = func(self, cur_arg)
+		else
+			assert(false, "unknown function BlockContent:" .. func_name)
+			break
+		end
+		index = index + 1
+		cur_arg = args[index]
+	end
+
+	if (ret ~= 0 ) then
+		ret = 1
+	end
+	
+	deb_print ('PacketContent:or( ' .. (index-1) .. ' args )  returns ' .. ret)
+	return ret
+end
+
+
+
+
+
+
+
+
+-- ======================================================
+
+PacketBlock = {
+	entity_type	= "block",
+	registered	= {},
+}
+PacketBlock.__index = PacketBlock
+
+function PacketBlock.new(name)
+	deb_print ('PacketBlock.new(): "', name, '"')
+	local block = {}
+	setmetatable( block, PacketBlock )
+
+	assert ( PacketBlock.registered[name] == nil,	"Block name '" ..name.. "' already exists" )
+	PacketBlock.registered[name] = block
+
+	block.name	= name
+	block.count	= 1
+	block.proto	= Proto (name, name)
+	block.nodes	= {}
+	block.name2field	= {}
+	block.props	= {}
+
+	return block
+end
+
+function PacketBlock.get(name)
+	deb_print ('PacketBlock.get(): "', name, '"')
+	assert( type(name) == "string" )
+	return PacketBlock.registered[name] or PacketBlock.registered.NIL
+end
+
+function PacketBlock:get_unique_name( name )
+	local uniq = name
+	local seq = 1
+	while ( self.unique_names[uniq] ~= nil ) do
+		uniq = name .. "_" .. seq
+		seq = seq+1
+	end
+	self.unique_names[uniq] = name
+	return uniq
+end
+
+
+function PacketBlock:add( the_entity, the_count )
+	deb_print ('PacketBlock:add(): "', self.name , '"')
+	local entity 	= the_entity
+	if ( type(entity) == "string" ) then
+		entity = PacketBlock.registered[entity]
+		assert ( entity, 	"Bad block name: "..the_entity )
+	end
+	assert ( entity.entity_type, 	"Bad entity" )
+	assert ( entity.name,		"Bad entity name" )
+
+	local name	= entity.name
+
+	local count = the_count;
+	if (count == nil) then
+		count = 1
+	end
+	entity.count = count
+
+	table.insert( self.nodes, entity )
+
+	if (entity.entity_type == "field") then
+		assert ( self.name2field[name] == nil, "Field already exists '" .. self.name .. "' [" .. name .."]"  )
+		self.name2field[name] = entity
+		self.proto.fields[name] = entity:create_protofield( self.name .. "." )
+
+		if (entity.type == xftypes.TIME32) then
+			self:add_sub( name, 0, PacketField.new( name..".sec",   ftypes.UINT32, nil, entity.endian ))
+		elseif (entity.type == xftypes.TIME64) then
+			self:add_sub( name, 0, PacketField.new( name..".sec",   ftypes.UINT32, nil, entity.endian ))
+			self:add_sub( name, 4, PacketField.new( name..".micro", ftypes.UINT32, nil, entity.endian ))
+		elseif (entity.type == xftypes.VARCHAR8) then
+			self:add_sub( name, 0, PacketField.new( name..".len",   ftypes.UINT8,  nil, entity.endian ))
+			self:add_sub( name, 1, PacketField.new( name..".text",  ftypes.STRING, name..".len" ))
+		elseif (entity.type == xftypes.VARCHAR16) then
+			self:add_sub( name, 0, PacketField.new( name..".len",   ftypes.UINT16,  nil, entity.endian ))
+			self:add_sub( name, 2, PacketField.new( name..".text",  ftypes.STRING, name..".len" ))
+		end
+	end
+
+	return self
+end
+
+function PacketBlock:add_sub( parent_name, off, entity, the_name )
+	assert ( entity.entity_type == "field", 	"Bad entity type" )
+	local parent = self.name2field[parent_name]
+	assert ( parent, 				"Bad parent entity: ", parent_name )
+	assert ( parent.entity_type == "field", 	"Bad parent entity type" )
+
+	local name = the_name or entity.name
+	local sub = {}
+	sub.name = name
+	sub.off = off
+	sub.entity = entity
+	table.insert( parent.sub, sub )
+	self.proto.fields[name] = entity:create_protofield( self.name .. "." )
+
+	return self
+end
+
+function PacketBlock:register_dissector()
+	deb_print ('PacketBlock:register_dissector(): "', self.name , '"')
+	assert(self.proto, "cant register dessector for nil proto")
+
+	self.proto.dissector = function (buffer, pinfo, tree)
+		Data.set_position(pinfo)
+		local content = PacketContent.new() 
+		local total_len = self:parse(buffer, content)
+
+		local subtree = tree:add(self.proto, buffer(0, total_len))
+		self:make_tree(content, pinfo, subtree)
+
+		Data.global.last_block_len = total_len
+	end
+	
+	return self
+end
+
+function PacketBlock:dissect( buffer, pinfo, tree )
+	deb_print ('PacketBlock:dissect(): "', self.name , '"')
+	local dissector = Dissector.get( string.lower( self.name ) )
+	dissector:call( buffer, pinfo, tree )
+	local len = Data.global.last_block_len
+	deb_print ('\tPacketBlock:dissect(): call returns: ', len)
+	return len
+end
+
+
+function PacketBlock:parse( buffer, content )
+	deb_print ('PacketBlock:parse(): "', self.name , '"')
+	deb_print ("---")
+	local len, offset = 0, 0;
+	local val_prefix = "val." .. self.name .. "." 
+
+	for _, f  in  ipairs(self.nodes) do
+
+		local count = 1
+		if ( 	type(f.count) == "number" ) then
+			count = f.count
+		elseif(	type(f.count) == "string" ) then
+			count = content:get_field_value(f.count) or -1
+		elseif(	type(f.count) == "table" ) then
+			local args = f.count
+			local func_name = args[1]
+			deb_print ("   func_name: "..func_name )
+			local func = content[func_name]
+			if (func == nil ) then
+				count = 0
+				assert(false, "unknown function BlockContent:" .. func_name)
+			else
+				count = func( content, args )
+			end
+		end
+
+		deb_print( "field '" .. f.name .. "'\ttype: '" .. f.entity_type .. "'\t count=" .. count )	
+
+		for i = 0, count-1 do
+			deb_print( "\t" .. f.name .. "[" .. i .. "]" )	
+		
+			if ( f.entity_type == "field" ) then
+				len = content:get_field_len(f, buffer, offset)
+				if (offset + len > buffer():len()) then
+					-- выход за граници буфера
+				elseif (len >= 0) then
+					local range  = buffer(offset,len)
+					content:add( f, range )
+					offset = offset + len
+
+					local val_name = val_prefix .. f.name
+					local val = f:get_num_value( range )
+					if (val ~= nil) then
+						Data.set(val_name, val, true)
+					end 
+
+					for _, sub in ipairs(f.sub) do
+						val_name = val_prefix .. sub.name
+						val = content.name2value[sub.name]
+						if (val ~= nil) then
+							Data.set(val_name, val, true)
+						end 
+					end 
+				else
+					assert(false, "BAD len_src: " .. f.len_src)
+				end
+			elseif ( f.entity_type == "block" ) then
+				local block_content = PacketContent.new()
+				len = f:parse(buffer(offset):tvb(), block_content)
+
+				if (offset + len > buffer():len()) then
+					-- выход за граници буфера
+				else
+					local range  = buffer(offset,len)
+					content:add( f, range )
+					offset = offset + len
+				end
+			elseif ( f.entity_type == "block_var" ) then
+				local val_name = val_prefix .. f.index
+				local table_index = Data.get(val_name, true)
+				deb_print ("BLOCK_VAR: " .. val_name .. " / " , table_index)
+				local block_name = f.table[table_index]
+				local block =  PacketBlock.registered[block_name] or PacketBlock.registered["NIL"]
+				
+				local block_content = PacketContent.new()
+				len = block:parse(buffer(offset):tvb(), block_content)
+
+				if (offset + len > buffer():len()) then
+					-- выход за граници буфера
+				else
+					local range  = buffer(offset,len)
+					content:add( block, range )
+					offset = offset + len
+				end
+			else
+				assert(false, "Wrong entity_type :" .. f.entity_type)
+			end
+		end
+	end
+	deb_print ("---")
+	
+	return offset    -- ie total len
+end
+
+
+
+function PacketBlock:make_tree( content, pinfo, subtree )
+	deb_print ('PacketBlock:make_tree(): "', self.name , '"')
+
+	deb_print ("---")
+	for _,node  in  ipairs(content.nodes) do
+		local entity = node.entity
+		local range  = node.range
+		deb_print ("  --- node: " .. entity.name .. "  type:" .. entity.entity_type )
+		if ( entity.entity_type == "field" ) then
+			deb_print ("  --- field: "..entity.name)
+			local subsub
+			if ( entity.type == xftypes.TIME32 ) then
+				local sec   = content:get_field_value(entity.name..".sec")   or 0
+				local time_text = string.format("%d sec (UTC) / %s (local time)", 
+					sec, os.date ("%Y-%m-%d %H:%M:%S", sec) )
+				subsub = subtree:add(    range, entity.name..": "..time_text )
+			elseif ( entity.type == xftypes.TIME64 ) then
+				local sec   = content:get_field_value(entity.name..".sec")   or 0
+				local micro = content:get_field_value(entity.name..".micro") or 0
+				local time_text = string.format("%d.%06d sec (UTC) / %s.%06d (local time)", 
+					sec, micro, os.date ("%Y-%m-%d %H:%M:%S", sec), micro )
+				subsub = subtree:add( range, entity.name..": "..time_text )
+			elseif (    entity.type == xftypes.VARCHAR8
+				or  entity.type == xftypes.VARCHAR16  ) then
+				local text_len = content:get_field_value(entity.name..".len")   or 0
+				subsub = subtree:add( range, entity.name..": varchar(" .. text_len .. ")" )
+			else
+				if (entity.endian == PacketField.endian.be) then
+					subsub = subtree:add   ( self.proto.fields[entity.name], range)
+				else
+					subsub = subtree:add_le( self.proto.fields[entity.name], range)
+				end
+			end
+
+			local string_text
+
+			for _,sub in ipairs(entity.sub) do
+				-- local sublen = sub.entity:get_fix_len()
+				local sublen = content:get_field_len(sub.entity)
+				deb_print( "\tsub" .. sub.name .. " off=" .. sub.off .. ", len=" .. sublen)
+				if (sublen > 0) then
+					if (sub.entity.endian == xend.BE) then
+						subsub:add   ( self.proto.fields[sub.name], range:tvb():range(sub.off, sublen) )
+					else
+						subsub:add_le( self.proto.fields[sub.name], range:tvb():range(sub.off, sublen) )
+					end
+					if (sub.entity.type == ftypes.STRING) then
+						string_text = range:tvb():range(sub.off, sublen):string()
+					end
+				end
+			end
+
+			if (	entity.type == xftypes.VARCHAR8
+			     or	entity.type == xftypes.VARCHAR16  ) then
+				subsub:append_text( ": '" .. (string_text or "") .. "'" )
+			end
+			
+		elseif ( entity.entity_type == "block" ) then
+			deb_print ("  --- block: "..entity.name)
+			-- TODO попытаться вмето dissect использовать make_tree
+			entity:dissect(range:tvb(), pinfo, subtree)
+		else
+			assert(false, "Wrong entity_type :" .. f.entity_type)
+		end
+	end
+	deb_print ("---")
+	
+end
+
+function PacketBlock:set_prop( name, value )
+	deb_print ('PacketBlock:set_prop(): "', self.name , '"  [' .. name .. '] = ', value)
+	assert( name ~= nil )
+	self.props[name] = value
+	return self
+end
+
+
+-- ======================================================
+-- NIL block
+PacketBlock.new( "NIL" )
+	:register_dissector()
+
+-- ======================================================
+-- UNKNOWN_DATA block
+do
+	local block = PacketBlock.new( "UNKNOWN_DATA" )
+	function block:parse( buffer, content )
+		deb_print ('PacketBlock:parse(): "', self.name , '"')
+
+		return buffer:len()
+	end
+
+	block:register_dissector()
+end
+
+-- ======================================================
+
+PacketBlockVar = {
+	entity_type	= "block_var",
+	name		= "block_var"
+}
+PacketBlockVar.__index = PacketBlockVar
+
+function PacketBlockVar.new(index, table)
+	deb_print ('PacketBlockVar.new(): "', index, '"')
+	local block = {}
+	setmetatable( block, PacketBlockVar )
+
+
+	block.index	= index
+	block.table	= table
+
+	return block
+end
+
+
