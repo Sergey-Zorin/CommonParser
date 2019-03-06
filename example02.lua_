@@ -64,37 +64,31 @@ PacketBlock.new(		"EX02_TURN_ANS"	)
 
 -- ============================================================
 PacketBlock.new(		"EX02_VIEW"	)
-	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
-	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:add( PacketField.new(	"duration",	ftypes.UINT64 ) )
 	:register_dissector()
 
 PacketBlock.new(		"EX02_VIEW_ANS"	)
-	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
-	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:add( PacketField.new(	"filename",	xftypes.VARCHAR8 ) )
 	:register_dissector()
 
 
 -- ============================================================
 PacketBlock.new(		"EX02_DIG"	)
-	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
-	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:add( PacketField.new(	"depth",	ftypes.UINT32 ) )
 	:register_dissector()
 
 PacketBlock.new(		"EX02_DIG_ANS"	)
-	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
-	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:add( PacketField.new(	"minerals",	ftypes.UINT32 ) )
 	:register_dissector()
 
 
 -- ============================================================
 PacketBlock.new(		"EX02_RADIO"	)
-	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
-	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:add( PacketField.new(	"message",	xftypes.VARCHAR16 ) )
 	:register_dissector()
 
 PacketBlock.new(		"EX02_RADIO_ANS"	)
-	:add( PacketField.new(	"len",		ftypes.UINT32 ) )
-	:add( PacketField.new(	"crc",		ftypes.UINT32, nil, nil, base.HEX ) )
+	:add( PacketField.new(	"answer",	xftypes.VARCHAR16 ) )
 	:register_dissector()
 
 
@@ -106,7 +100,7 @@ do
 
 	local my_proto = Proto( proto_name, proto_long_name )
 
-	example01_proto	= my_proto
+	example02_proto	= my_proto
 
 	function my_proto.dissector( buffer, pinfo, tree )
 
