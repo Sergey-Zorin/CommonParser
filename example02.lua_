@@ -101,6 +101,9 @@ do
 	local my_proto = Proto( proto_name, proto_long_name )
 
 	example02_proto	= my_proto
+	
+	local my_fields		= my_proto.fields
+	my_fields.id_req	= ProtoField.uint16 ( proto_name .. ".id_req",		"id_req", base.HEX)
 
 	function my_proto.dissector( buffer, pinfo, tree )
 
@@ -108,7 +111,8 @@ do
 		pinfo.cols.protocol = proto_col_name
 		local subtree 	= tree:add( my_proto, buffer() )
 		local offset	= 0
-
+		local id_req
+		
 		repeat
 			local dir = Data.determine_direction(pinfo)
 
@@ -136,7 +140,7 @@ do
 			-- layer 3
 			block_name = "UNKNOWN"
 			if( dir == "req" ) then
-				local id_req = Data.get("val.EX02_REQ.id_req", true) or 0;
+				id_req = Data.get("val.EX02_REQ.id_req", true) or 0;
 				local req_name = Ex01_ReqName[id_req] or "unknown request"
 				pinfo.cols.info:append(" " .. req_name)
 				Data.set("id_req", id_req) -- save in tcp-stream data
@@ -144,7 +148,7 @@ do
 			elseif( dir == "ans" ) then
 				local code = Data.get("val.EX02_ANS.ret_code", true) or 0xFFFF;
 				local code_name = Ex01_CodeName[code] or "unknown return code"
-				local id_req = Data.get("id_req") or 0 -- load from tcp-stream data
+				id_req = Data.get("id_req") or 0 -- load from tcp-stream data
 				local req_name = Ex01_ReqName[id_req] or "unknown request"
 				pinfo.cols.info:append(" " .. string.lower(req_name).. ": " .. code_name)
 				block_name = "EX01_" .. req_name .. "_ANS"
@@ -164,6 +168,14 @@ do
 			len	= block:dissect(buffer(offset):tvb(), pinfo, subtree)
 			offset = offset + len
 		end
+		
+		-- --------------------------------------------
+		-- Adding generated fields
+		--
+		if (id_req > 0) then
+			subtree:add (my_fields.id_req,		id_req ):set_generated()
+		end
+		
 	
 	end
 end

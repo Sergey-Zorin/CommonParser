@@ -1,0 +1,93 @@
+
+-- ============================================================
+PacketBlock.new(		"EX03_BLOCK_A"	)
+	:add( PacketField.new(	"data",	ftypes.UINT16) )
+	:register_dissector()
+	
+-- ============================================================
+PacketBlock.new(		"EX03_BLOCK_B"	)
+	:add( PacketField.new(	"data",	ftypes.UINT16) )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX03_BLOCK_A_OR_B"	)
+	:add( PacketField.new(	"data",	ftypes.UINT16) )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX03_BLOCK_A_AND_B"	)
+	:add( PacketField.new(	"data",	ftypes.UINT16) )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX03_ARR_ENTRY"	)
+	:add( PacketField.new(	"data",	ftypes.UINT16) )
+	:register_dissector()
+
+
+-- ============================================================
+PacketBlock.new(		"EX03_REQ"	)
+	:add( PacketField.new(	"word",		ftypes.UINT16) )
+		:add_sub( "word", 0, PacketField.new( "word.hibyte",	ftypes.UINT8 ) )
+		:add_sub( "word", 1, PacketField.new( "word.lobyte",	ftypes.UINT8 ) )
+	:add( PacketField.new(	"flags",	ftypes.UINT8, nil, nil, base.HEX ) )
+		:add_sub( "flags", 0, PacketField.new( 	"flags.bitA",	ftypes.UINT8, nil,nil,nil,nil, 0x01 ) )
+		:add_sub( "flags", 0, PacketField.new( 	"flags.bitB",	ftypes.UINT8, nil,nil,nil,nil, 0x02 ) )
+		:add_sub( "flags", 0, PacketField.new( 	"flags.reserved",	ftypes.UINT8, nil,nil,nil,nil, 0xFC ) )
+	:add( "EX03_BLOCK_A",	{"check_bit", "flags", 0}  )
+	:add( "EX03_BLOCK_B",	{"check_bit", "flags", 1}  )
+	:add( "EX03_BLOCK_A_OR_B",	{"OR",  {"check_bit", "flags", 0}, {"check_bit", "flags", 1} } )
+	:add( "EX03_BLOCK_A_AND_B",	{"AND", {"check_bit", "flags", 0}, {"check_bit", "flags", 1} } )
+	:add( PacketField.new(	"array_len", ftypes.UINT8) )
+	:add( "EX03_ARR_ENTRY",	"array_len"  )
+	:register_dissector()
+
+-- ============================================================
+PacketBlock.new(		"EX03_ANS"	)
+	:add( PacketField.new(	"ret_code",	ftypes.UINT16, nil, nil, base.HEX, { [0] = "Ok", "Fail" } ) )
+	:register_dissector()
+
+
+-- ============================================================
+do
+	local proto_name		= "ex03"
+	local proto_long_name	= "Example-03 Protocol"
+	local proto_col_name	= "Example03"
+
+	local my_proto = Proto( proto_name, proto_long_name )
+
+	example03_proto	= my_proto
+
+	function my_proto.dissector( buffer, pinfo, tree )
+
+		Data.set_position(pinfo)
+		pinfo.cols.protocol = proto_col_name
+		local subtree 	= tree:add( my_proto, buffer() )
+		local offset	= 0
+
+		repeat
+			local dir = Data.determine_direction(pinfo)
+
+			local block	= PacketBlock.get("UNKNOWN")
+			if( dir == "req" ) then
+				block	= PacketBlock.get("EX03_REQ")
+			elseif( dir == "ans" ) then
+				block	= PacketBlock.get("EX03_ANS")
+			end
+
+			len		= block:dissect(buffer(offset):tvb(), pinfo, subtree)
+			offset		= offset + len
+			
+		until true
+
+        -- ---------------------------------------------
+        -- Unknown rest of packet
+        --
+		if (offset < buffer():len()) then
+			block	= PacketBlock.get("UNKNOWN_DATA")
+			len	= block:dissect(buffer(offset):tvb(), pinfo, subtree)
+			offset = offset + len
+		end
+	
+	end
+end

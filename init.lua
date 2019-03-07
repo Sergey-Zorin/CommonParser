@@ -1,5 +1,6 @@
 enable_example01 = true
 enable_example02 = true
+enable_example03 = true
 
 dofile("plugins/CommonParser/CommonParser.lua_")
 
@@ -16,6 +17,10 @@ if( enable_example02 ) then
 	tcp_table:add (34502, example02_proto)
 end
 
+if( enable_example03 ) then
+	dofile("plugins/CommonParser/example03.lua_")
+	tcp_table:add (34503, example03_proto)
+end
 
 
 

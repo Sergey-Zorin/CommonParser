@@ -1,4 +1,5 @@
--- deb_print = print		-- print debug
+-- deb_print = print		-- print debug to std
+-- deb_print = info			-- print debug to Lua console
 deb_print = function() end	-- don't print debug
 
 
@@ -445,6 +446,34 @@ function PacketContent:OR( args )
 	end
 	
 	deb_print ('PacketContent:or( ' .. (index-1) .. ' args )  returns ' .. ret)
+	return ret
+end
+
+
+function PacketContent:AND( args )
+	local my_name		= args[1]
+	local index = 2
+	local cur_arg = args[index]
+	local ret = 1
+	
+	while ( ret ~= 0  and cur_arg ~= nil ) do
+		local func_name = cur_arg[1]
+		local func = self[func_name]
+		if ( type(func) == "function" ) then
+			ret = func(self, cur_arg)
+		else
+			assert(false, "unknown function BlockContent:" .. func_name)
+			break
+		end
+		index = index + 1
+		cur_arg = args[index]
+	end
+
+	if (ret ~= 0 ) then
+		ret = 1
+	end
+	
+	deb_print ('PacketContent:and( ' .. (index-1) .. ' args )  returns ' .. ret)
 	return ret
 end
 
