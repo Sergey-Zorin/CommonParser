@@ -23,12 +23,12 @@ PacketBlock.new(		"EX02_HDR"	)
 
 -- ============================================================
 PacketBlock.new(		"EX02_REQ"	)
-	:add( PacketField.new(	"id_req",	ftypes.UINT16, nil, nil, base.HEX, Ex01_ReqName  ) )
+	:add( PacketField.new(	"id_req",	ftypes.UINT16, nil, nil, base.HEX, Ex02_ReqName  ) )
 	:register_dissector()
 
 -- ============================================================
 PacketBlock.new(		"EX02_ANS"	)
-	:add( PacketField.new(	"ret_code",	ftypes.UINT16, nil, nil, base.HEX, Ex01_CodeName ) )
+	:add( PacketField.new(	"ret_code",	ftypes.UINT16, nil, nil, base.HEX, Ex02_CodeName ) )
 	:register_dissector()
 
 -- ============================================================
@@ -125,9 +125,9 @@ do
 			-- layer 2 
 			local block_name = "UNKNOWN"
 			if( dir == "req" ) then
-				block_name = "EX01_REQ"
+				block_name = "EX02_REQ"
 			elseif( dir == "ans" ) then
-				block_name = "EX01_ANS"
+				block_name = "EX02_ANS"
 			else
 				
 			end
@@ -141,17 +141,17 @@ do
 			block_name = "UNKNOWN"
 			if( dir == "req" ) then
 				id_req = Data.get("val.EX02_REQ.id_req", true) or 0;
-				local req_name = Ex01_ReqName[id_req] or "unknown request"
+				local req_name = Ex02_ReqName[id_req] or "unknown request"
 				pinfo.cols.info:append(" " .. req_name)
 				Data.set("id_req", id_req) -- save in tcp-stream data
-				block_name = "EX01_" .. req_name
+				block_name = "EX02_" .. req_name
 			elseif( dir == "ans" ) then
 				local code = Data.get("val.EX02_ANS.ret_code", true) or 0xFFFF;
-				local code_name = Ex01_CodeName[code] or "unknown return code"
+				local code_name = Ex02_CodeName[code] or "unknown return code"
 				id_req = Data.get("id_req") or 0 -- load from tcp-stream data
-				local req_name = Ex01_ReqName[id_req] or "unknown request"
+				local req_name = Ex02_ReqName[id_req] or "unknown request"
 				pinfo.cols.info:append(" " .. string.lower(req_name).. ": " .. code_name)
-				block_name = "EX01_" .. req_name .. "_ANS"
+				block_name = "EX02_" .. req_name .. "_ANS"
 			end
 
 			block	= PacketBlock.get(block_name)
